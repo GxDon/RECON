@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import os
+import socket
+from datetime import datetime
+
+DEFAULT_PORTS = [
+    21, 22, 25, 53, 80, 110, 143,
+    443, 445, 3306, 3389, 5432, 8080, 8443
+]
+
+
+def scan_port(host, port, timeout):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+
+    try:
+        return sock.connect_ex((host, port)) == 0
+    finally:
+        sock.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="GxNetRecon - reconocimiento TCP autorizado"
+    )
+
+    parser.add_argument(
+        "target",
+        help="IP o dominio autorizado"
+    )
+
+    parser.add_argument(
+        "-p",
+        "--ports",
+        default=",".join(map(str, DEFAULT_PORTS)),
+        help="Puertos separados por coma"
+    )
+
+    parser.add_argument(
+        "-t",
+        "--timeout",
+        type=float,
+        default=0.5
+    )
+
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="reports/netrecon.json"
+    )
+
+    args = parser.parse_args()
+
+    try:
+        ip = socket.gethostbyname(args.target)
+    except socket.gaierror as error:
+        print(f"[!] No se pudo resolver {args.target}: {error}")
+        return
+
+    ports = []
+
+    for value in args.ports.split(","):
+        try:
+            port = int(value)
+
+            if 1 <= port <= 65535:
+                ports.append(port)
+
+        except ValueError:
+            pass
+
+    open_ports = []
+
+    print(f"\n[+] GxNetRecon")
+    print(f"[+] Objetivo: {args.target}")
+    print(f"[+] IP: {ip}\n")
+
+    for port in ports:
+
+        if scan_port(ip, port, args.timeout):
+
+            try:
+                service = socket.getservbyport(port, "tcp")
+            except OSError:
+                service = "unknown"
+
+            open_ports.append({
+                "port": port,
+                "protocol": "tcp",
+                "service": service
+            })
+
+            print(f"[OPEN] {port}/tcp - {service}")
+
+    report = {
+        "tool": "GxNetRecon",
+        "version": "1.1.0",
+        "target": args.target,
+        "resolved_ip": ip,
+        "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+        "open_ports": open_ports,
+        "authorized_use_only": True
+    }
+
+    os.makedirs(
+        os.path.dirname(args.output) or ".",
+        exist_ok=True
+    )
+
+    with open(args.output, "w", encoding="utf-8") as file:
+        json.dump(
+            report,
+            file,
+            indent=2,
+            ensure_ascii=False
+        )
+
+    print(f"\n[+] Puertos abiertos: {len(open_ports)}")
+    print(f"[+] Reporte: {args.output}")
+
+
+if name == "main":
+    main()
